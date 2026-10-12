@@ -388,8 +388,19 @@ def print_audit(sources, not_read, ignored, accepted, rejected):
         if EXPECTED_ID_PREFIX and not r["id"].startswith(EXPECTED_ID_PREFIX):
             print(f"  {r['id']} (prefix {r['id'][:4]}) in batch {r['batch']} — different cohort")
             flagged = True
-        if r["email"].endswith("uttarauniversity.edu.bd"):
-            print(f"  {r['id']} submitted from a STAFF email ({r['email']})")
+    # Students and staff share the university domain, so the domain proves nothing.
+    # What does: an advisor's own email (from the master sheet) on a student's
+    # row, or one email used for several different students.
+    advisors = {s["email"].strip().lower() for s in sources if s.get("email")}
+    by_email = {}
+    for r in accepted:
+        if r["email"]: by_email.setdefault(r["email"].strip().lower(), []).append(r["id"])
+    for email, ids in by_email.items():
+        if email in advisors:
+            print(f"  {email} is an advisor's email (master sheet) but was used for: {', '.join(ids)}")
+            flagged = True
+        elif len(ids) > 1:
+            print(f"  {email} was used for {len(ids)} different students: {', '.join(ids)}")
             flagged = True
     if not flagged: print("  (nothing flagged)")
     print(line)

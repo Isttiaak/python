@@ -58,7 +58,7 @@ jobs:
           ERP_ID: ${{ secrets.ERP_ID }}
           ERP_PASSWORD: ${{ secrets.ERP_PASSWORD }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
-        run: python enroll.py
+        run: python -u enroll.py      # -u: print progress as it happens, not in bursts
 
       - name: Save the enrollment log for the next run
         if: always() && hashFiles('erp_runs/enrollment_log.csv') != ''
