@@ -546,17 +546,32 @@ def load_completed():
         return {(r["student_id"], r["academic_year"], r["semester"]) for r in csv.DictReader(f)
                 if r.get("status") in ("enrolled", "already")}
 
-def match_option(value, opts):
+def _term(text):
+    """Lower-case term text with short years spelled out: '2026-27' -> '2026-2027',
+    "Fall'26" / 'Fall 26' -> 'fall 2026'. 'Autumn' counts as 'fall'."""
+    t = (text or "").lower().replace("autumn", "fall")
+    t = re.sub(r"(?<!\d)(20\d\d)\s*[-/–—]\s*(\d\d)(?!\d)", lambda m: f"{m[1]}-{m[1][:2]}{m[2]}", t)
+    return re.sub(r"(?<!\d)'?(\d\d)(?!\d)", r"20\1", t)
+
+def match_option(value, opts, hint=""):
     """ERP dropdown option for a master-sheet value -> (option, why_not).
     Exact text first, then the same words in any order ('Summer 2026' =
-    '2026 Summer'), then one partial match. Never guesses between two options."""
-    want = _norm(value)
+    '2026 Summer'), then one partial match ('Fall 2026' -> 'Fall'). When several
+    options fit, the year in `hint` (the other master column) may settle it:
+    semester 'Fall' with year '2026-2027' -> 'Fall 2026', not 'Fall 2025'.
+    Never guesses beyond that."""
+    v = _term(value); want = _norm(v)
     if not want: return None, "blank"
-    words = lambda t: sorted(re.findall(r"[a-z]+|\d+", t.lower()))
-    for hits in ([o for o in opts if _norm(o) == want],
-                 [o for o in opts if words(o) == words(value)]):
+    words = lambda t: sorted(re.findall(r"[a-z]+|\d+", t))
+    terms = {o: _term(o) for o in opts}
+    for hits in ([o for o, t in terms.items() if _norm(t) == want],
+                 [o for o, t in terms.items() if words(t) == words(v)]):
         if len(hits) == 1: return hits[0], ""
-    part = [o for o in opts if _norm(o) and (want in _norm(o) or _norm(o) in want)]
+    part = [o for o, t in terms.items() if _norm(t) and (want in _norm(t) or _norm(t) in want)]
+    if len(part) > 1:
+        years = set(re.findall(r"\d{4}", _term(hint)))
+        narrowed = [o for o in part if years & set(re.findall(r"\d{4}", terms[o]))]
+        if len(narrowed) == 1: return narrowed[0], ""
     if len(part) == 1: return part[0], ""
     return None, (f"could be any of {part}" if part else "no ERP option looks like it")
 
@@ -565,8 +580,8 @@ def ask_option(kind, value, opts, why):
     print(f"\nMaster sheet {kind} '{value}': {why}.")
     for i, o in enumerate(opts, 1): print(f"  {i}. {o}")
     if not sys.stdin.isatty():                 # unattended run (GitHub Actions): nobody to answer
-        print("  Nobody to ask in an unattended run, so these students are skipped. Make the master\n"
-              "  form's answer match one of the options above exactly.")
+        print("  Nobody to ask in an unattended run, so these students are skipped. Change this\n"
+              "  value in the master sheet to one of the options above.")
         return None
     print("  0. skip the students with this value")
     while True:
@@ -581,15 +596,20 @@ def ask_option(kind, value, opts, why):
 def resolve_terms(students, year_opts, sem_opts):
     """Swap each student's master-sheet year/semester for the exact ERP option
     text. Students whose term can't be matched are returned separately."""
-    found = {}
-    for kind, key, opts in (("academic year", "year", year_opts), ("semester", "semester", sem_opts)):
-        for value in dict.fromkeys(s[key] for s in students):
-            opt, why = match_option(value, opts)
-            found[key, value] = opt or ask_option(kind, value, opts, why)
-            print(f"  {kind:<13} '{value}' -> {found[key, value] or 'NOT MATCHED — skipped'}")
+    found, asked = {}, {}
+    def pick(kind, value, opts, hint):
+        opt, why = match_option(value, opts, hint)
+        if not opt and (kind, value) not in asked:
+            asked[kind, value] = ask_option(kind, value, opts, why)
+        return opt or asked.get((kind, value))
+    for year, sem in dict.fromkeys((s["year"], s["semester"]) for s in students):
+        y = pick("academic year", year, year_opts, sem)
+        m = pick("semester", sem, sem_opts, year) if y else None
+        found[year, sem] = (y, m)
+        print(f"  {year} / {sem}  ->  " + (f"{y} / {m}" if y and m else "NOT MATCHED — skipped"))
     kept, dropped = [], []
     for s in students:
-        y, m = found["year", s["year"]], found["semester", s["semester"]]
+        y, m = found[s["year"], s["semester"]]
         (kept if y and m else dropped).append({**s, "year": y or s["year"], "semester": m or s["semester"]})
     return kept, dropped
 

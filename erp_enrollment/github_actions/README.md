@@ -11,15 +11,20 @@ requirements.txt                       Python packages it needs
 .github/workflows/daily-enrollment.yml when and how GitHub runs it
 ```
 
-## Before you start: fix two things in your Google Forms
+## Before you start
 
-1. **Make Academic Year and Semester dropdown questions in the master form.**
-   Their choices must match the ERP's dropdowns exactly, for example `2026-2027`
-   and `Fall`. Nobody is there to answer questions during an unattended run. A
-   value that fits more than one ERP option (like `2026`) is skipped, and the run
-   is marked failed.
-2. **Share the master sheet and every advisor's sheet as "Anyone with the link: Viewer".**
-   Otherwise the script can't download it.
+**Share the master sheet and every advisor's sheet as "Anyone with the link: Viewer".**
+Otherwise the script can't download it.
+
+Academic Year and Semester are read from the master sheet, row by row. The ERP
+shows them as dropdown lists, and the script picks the matching item itself:
+`2026-27`, `26-27` and `2026/2027` all become `2026-2027`; `Fall 2026` becomes
+`Fall`; `Fall'26` becomes `Fall 2026`. If the ERP's semester list includes the
+year, the year column decides it. The one thing it won't do is guess. A value
+that fits two ERP items (a bare `2026` when the ERP has both `2025-2026` and
+`2026-2027`) or none at all is skipped, and that run is marked failed. The log
+lists the ERP's items, so you can correct that cell in the master sheet, and the
+next run picks those students up.
 
 ## Step 1: Create a private repository
 
